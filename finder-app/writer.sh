@@ -1,6 +1,6 @@
 # Author: Sachin Mathad
 # Assignment 1 
-# Description: Count and print number of files in the directory and number of matching lines 
+# Description: Open and write to file arguments given in through CLI 
 
 #!/bin/bash
 
@@ -11,18 +11,19 @@ then
     exit 1 
 fi 
 
-
-# count the number of files in the directory 
+#isolate the path name 
 path=$( dirname $1 )
+#create directory
 mkdir -p $path
+#write to file 
 echo $2 > $1
-
+#check for errors 
 if [ $? -eq 1 ]
 then 
     echo "Text write failed"
     exit 1
 fi
-
+#check for file create errors 
 if [ ! -e $1 ]
 then 
     echo "File not created"
