@@ -16,8 +16,16 @@ bool do_system(const char *cmd)
  *   and return a boolean true if the system() call completed with success
  *   or false() if it returned a failure
 */
+    bool ret_status = true;
 
-    return true;
+    int retval = system(cmd); 
+    
+    if(-1 == retval) {
+        ret_status = false;
+        perror("system() call failure:");
+    }
+
+    return ret_status;
 }
 
 /**
@@ -58,10 +66,47 @@ bool do_exec(int count, ...)
  *   as second argument to the execv() command.
  *
 */
+    int ret_status = true;
+    pid_t ret_val = fork();
+
+    // check for errno in fork 
+    if(-1 == ret_val) {
+        ret_status = false; 
+        perror("Fork error: ");
+    }
+    // parent operation to wait for child to turn zombie
+    else if(ret_val > 0) {
+        int status; 
+        pid_t wait_status = wait(&status);
+        if(-1 == wait_status) {
+            perror("Wait error: ");
+            ret_status = false; 
+        }
+        else {
+            // check if child called _exit to exit normally
+            if(WIFEXITED(status)) {
+                // check if child process did not exit success(failure == 1)
+                if(WEXITSTATUS(status) != 0) {
+                   ret_status = false; 
+                }
+            } else {
+                // if child did not call _exit() 
+                ret_status = false; 
+            }
+        }
+    }
+    // child process
+    else if(ret_val == 0) {
+        int exec_status = execv(command[0], command);
+        if(-1 == exec_status) {
+            perror("Exec error: ");
+            exit(-1);
+        }
+    }
 
     va_end(args);
 
-    return true;
+    return ret_status;
 }
 
 /**
@@ -92,8 +137,56 @@ bool do_exec_redirect(const char *outputfile, int count, ...)
  *   The rest of the behaviour is same as do_exec()
  *
 */
+    int fd = open(outputfile, O_WRONLY|O_TRUNC|O_CREAT, 0644);
+    if(-1 == fd) {
+        perror(" File open: ");
+        exit(-1);
+    }
+    int ret_status = true;
+    pid_t ret_val = fork();
+
+    // check for errno in fork 
+    if(-1 == ret_val) {
+        ret_status = false; 
+        perror("Fork error: ");
+    }
+    // parent operation to wait for child to turn zombie
+    else if(ret_val > 0) {
+        int status; 
+        pid_t wait_status = wait(&status);
+        if(-1 == wait_status) {
+            perror("Wait error: ");
+            ret_status = false; 
+        }
+        else {
+            // check if child called _exit to exit normally
+            if(WIFEXITED(status)) {
+                // check if child process did not exit success(failure == 1)
+                if(WEXITSTATUS(status) != 0) {
+                   ret_status = false; 
+                }
+            } else {
+                // if child did not call _exit() 
+                ret_status = false; 
+            }
+        }
+    }
+    // child process
+    else if(ret_val == 0) {
+        // redirection make fd and 1 to be used interchangebly
+        if (dup2(fd, 1) < 0) { 
+            perror("dup2"); 
+            exit(-1); 
+        }
+        int exec_status = execv(command[0], command);
+        if(-1 == exec_status) {
+            perror("Exec error: ");
+            exit(-1);
+        }
+    }
 
     va_end(args);
+    close(fd);
 
-    return true;
+    return ret_status;
 }
