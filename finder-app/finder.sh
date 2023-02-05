@@ -1,8 +1,8 @@
+#!/bin/sh
 # Author: Sachin Mathad
 # Assignment 1 
 # Description: Count and print number of files in the directory and number of matching lines 
 
-#!/bin/bash
 
 # error case if arguments not equal to 2
 if [ $# -ne 2 ] 
