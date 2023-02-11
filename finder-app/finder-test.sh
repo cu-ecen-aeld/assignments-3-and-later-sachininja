@@ -59,7 +59,7 @@ done
 
 OUTPUTSTRING=$(finder.sh "$WRITEDIR" "$WRITESTR")
 
-REDIRECT_PATH = "/tmp/assignment4-result.txt"
+REDIRECT_PATH="/tmp/assignment4-result.txt"
 
 echo ${OUTPUTSTRING} > ${REDIRECT_PATH}
 
