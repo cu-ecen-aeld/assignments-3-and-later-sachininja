@@ -18,7 +18,7 @@ void* threadfunc(void* thread_param)
     // hint: use a cast like the one below to obtain thread arguments from your parameter
     //struct thread_data* thread_func_args = (struct thread_data *) thread_param;
 
-    t_thread_data* thread_func_args = (t_thread_data *) thread_param;
+    struct thread_data* thread_func_args = (struct thread_data *) thread_param;
 
     bool ret_status = true;
 
@@ -84,7 +84,7 @@ bool start_thread_obtaining_mutex(pthread_t *thread, pthread_mutex_t *mutex,int 
      * See implementation details in threading.h file comment block
      */
     bool bool_ret = true;
-    t_thread_data *var_thread_data =  (t_thread_data *) malloc(sizeof(t_thread_data));
+    struct thread_data *var_thread_data =  (struct thread_data *) malloc(sizeof(struct thread_data));
     var_thread_data->thread = thread;
     var_thread_data->mutex = mutex;
     var_thread_data->wait_to_obtain_ms = wait_to_obtain_ms;
