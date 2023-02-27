@@ -1,9 +1,10 @@
 #! /bin/sh
 
+DAEMON_OPTS="-d"
 case "$1" in
     start)
         echo "Starting aesdsocket"
-        start-stop-daemon -S -n aesdsocket -a /usr/bin/aesdsocket
+        start-stop-daemon -S -n aesdsocket -a /usr/bin/aesdsocket -- -d 
         ;;
     stop)
         echo "Stopping aesdsocket"
