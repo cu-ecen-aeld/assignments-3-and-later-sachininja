@@ -200,7 +200,6 @@ int main(int argc, char * argv[]) {
     bool eol_found = false;
     int line_length = 0;
     int total_length = 0;
-    int store_buffer_count = 0;
     char *new_ptr = NULL;
 
 
@@ -211,7 +210,6 @@ int main(int argc, char * argv[]) {
         } else { // recv data 
             
              // open file 
-            store_buffer_count = 0;
             store_buffer = (char *) calloc(INIT_BUFFER_SIZE, sizeof(char));
             if(store_buffer == NULL) {
                // printf("Calloc:\n");
@@ -274,7 +272,7 @@ int main(int argc, char * argv[]) {
             if((total_file_length = lseek(fd, 0, SEEK_END))== -1) {
                 perror("lseek error: ");
                 return -1;
-    
+
             }
             if(write(fd, store_buffer, total_length) == -1) {
                 perror("File writer fail: ");
