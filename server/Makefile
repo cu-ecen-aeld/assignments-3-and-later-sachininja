@@ -6,7 +6,7 @@ all: aesdsocket
 
 CC=gcc
 
-writer: aesdsocket.c
+aesdsocket: aesdsocket.c
 	@($(CROSS_COMPILE)$(CC) -o aesdsocket aesdsocket.c -Wall -Werror)
 
 clean:
