@@ -21,6 +21,8 @@
 #include<netinet/in.h>
 #include<netdb.h>
 #include<linux/fs.h>
+#include<pthread.h>
+#include<sys/time.h>
 
 
 #define INIT_BUFFER_SIZE 1024
@@ -32,22 +34,102 @@ int client_fd = -1;
 // file descriptor 
 int fd;
 
-char *store_buffer = NULL;
+// mutex 
+pthread_mutex_t mutex;
+timer_t write_time;
+
+
+
+bool terminate = false;
+
+typedef struct{
+    pthread_t pthread;
+    int client_fd; 
+    struct sockaddr_in *c_addr;
+    bool t_complete; 
+}client_meta_t;
+
+typedef struct cnode{
+    
+    client_meta_t client_meta;
+    struct cnode *next;
+    
+}cnode_t;
+
+cnode_t *head = NULL;
+cnode_t *previous = NULL; 
+cnode_t *current = NULL;
+
+pthread_t timer_thread;
+
+// int start_timer() {
+
+//     struct itimerspec ts;
+//     //int ret = 0;
+
+//     ts.it_value.tv_sec = 10;
+//     ts.it_interval.tv_sec = 10;
+    
+//     ts.it_value.tv_nsec = 0;
+//     ts.it_interval.tv_nsec = 0;
+
+//     if(timer_create(CLOCK_REALTIME, NULL, &write_time) == -1) {
+//         perror("Timer Create: ");
+//         return EXIT_FAILURE;
+//     }
+
+//     if(timer_settime(write_time, 0, &ts, NULL) == -1) {
+//         perror("Timer Set: ");
+//         return EXIT_FAILURE;
+//     }
+
+//     return EXIT_SUCCESS;
+// }
+
+void* timer_handle(void *arg) {
+
+    while(!terminate) {
+        time_t now = time(NULL);
+        struct tm *local_time = localtime(&now);
+
+        char timestr[100];
+
+        strftime(timestr, sizeof(timestr), "timestamp:%Y-%m-%d %H:%M:%S\n", local_time);
+
+        if(pthread_mutex_lock(&mutex) != 0) {
+            perror("Mutex unlock fail:");
+        }
+
+        if(write(fd, timestr, strlen(timestr)) == -1) {
+            perror("Time File writer fail: ");
+           // return -1;
+        }
+
+        if(pthread_mutex_unlock(&mutex) != 0) {
+            perror("Mutex unlock fail:");
+        }
+   
+        sleep(10);
+
+    }
+    return NULL;
+
+}
 
 // reentrant function
 void handler(int sig, siginfo_t *info, void *ucontext) {
 
     if((sig == SIGINT) || (sig == SIGTERM)) {
     
-        syslog(LOG_DEBUG, "Caught Signal, Exiting\n");
-        closelog();
-        close(client_fd);
-        close(sfd);
-        close(fd);
-        closelog();
-        unlink("/var/tmp/aesdsocketdata");
-        _exit(EXIT_SUCCESS);
-    }  
+
+        terminate = true;
+
+        
+        //_exit(EXIT_SUCCESS);
+    } 
+    // else if(sig == SIGALRM) {
+    //     timelog();
+    // } 
     else {
         syslog(LOG_ERR, "Unknown sig, not supposed to be here\n");
     }
@@ -69,6 +151,9 @@ void signal_init() {
         perror("Signal init error\n");
     }
 
+    // if(sigaction(SIGALRM, &action, NULL)) { // non zero return is error
+    //     perror("Signal init error\n");
+    // }
 }
 
 // ref: Linux system programming 
@@ -105,6 +190,218 @@ int demonize() {
     return 0;
 }
 
+void exit_cleaner() {
+
+    pthread_mutex_destroy(&mutex);
+
+    syslog(LOG_DEBUG, "Caught Signal, Exiting\n");
+        // closelog();
+    if(client_fd > 0)
+        close(client_fd);
+        
+    if(sfd > 0)
+        close(sfd);
+       
+    if(fd > 0)
+        close(fd);
+    
+    
+    closelog();
+    
+    unlink("/var/tmp/aesdsocketdata");
+
+
+    free(previous);
+    free(current);
+    free(head);
+
+}
+// if true loop until head == NULL
+void check_thread_join(bool val) {
+
+    do{ 
+        current = head;
+        previous = head;
+        while(current != NULL) {
+            //Updating head if first node is complete
+            if (current->client_meta.t_complete == true) {
+               // printf("Exited Thread %lu sucessfully\n", (current->client_meta.pthread));
+
+                if(current == head)
+                    head = current->next;
+                else 
+                    previous->next = current->next;
+
+                pthread_join(current->client_meta.pthread, NULL);
+
+                free(current);
+
+                if(current == head) 
+                    current = head;
+                else
+                    current = previous->next; 
+            }
+            else {
+                previous = current;
+                current = current->next;
+            }
+
+            if(head == NULL) { 
+                val = false;
+                current = NULL;
+               // printf("head == NULL");
+            }
+        }
+        if(head == NULL) 
+            val = false;
+      //  printf("Stuck here val %u\n", val);
+    }while(val == true);
+
+
+    // //free(head);
+
+
+}
+
+void* client_handle(void *client_meta) {
+    
+   // struct sockaddr client_addr; 
+   // socklen_t client_addr_size = sizeof(client_addr);
+    char *store_buffer = NULL;
+    int client_rx = 0; 
+    char rx_buffer[INIT_BUFFER_SIZE];
+    bool eol_found = false;
+    int line_length = 0;
+    int total_length = 0;
+    char *new_ptr = NULL;
+    
+
+    client_meta_t *client_meta_copy = (client_meta_t *)client_meta;
+
+    int client_fd = client_meta_copy->client_fd;
+
+
+    store_buffer = (char *) calloc(INIT_BUFFER_SIZE, sizeof(char));
+    if(store_buffer == NULL) {
+       // printf("Calloc:\n");
+        perror("Calloc fail :");
+       // return -1;
+    }
+
+    //printf("calloc done\n");
+    memset(store_buffer, '\0', INIT_BUFFER_SIZE);
+    total_length = 0;
+    
+   // struct sockaddr_in *temp_client_addr = (client_meta.c_addr);    
+    // log connected to client 
+   // printf("Connected to client %s \n", inet_ntoa(temp_client_addr->sin_addr));
+    syslog(LOG_DEBUG, "Connected to client %s", inet_ntoa(client_meta_copy->c_addr->sin_addr));
+    
+    // loop until client closes connection or \n is found
+    while(((client_rx = recv(client_fd, rx_buffer, sizeof(rx_buffer), 0)) > 0) && (!(eol_found))) {
+        
+       // printf("received data %s\n", rx_buffer);
+        line_length = 0;
+        for(int i = 0; i < client_rx; i++) {
+            line_length++;
+            if(rx_buffer[i] == '\n') {
+                eol_found = true;
+             //   printf("eof found at %d\n", line_length);
+                break;
+            }
+            
+        }
+        total_length += line_length;
+        if(total_length >= INIT_BUFFER_SIZE) { // if total store buffer is falling short, realloc
+            if(!(new_ptr = realloc(store_buffer, INIT_BUFFER_SIZE + total_length + 1))) {
+             //   printf("realloc :\n");    
+                perror("Realloc fail :");
+               // return -1;
+            } else { // append to the string
+                store_buffer = new_ptr;
+                strncat(store_buffer, rx_buffer, line_length);
+              //  printf("%s concat\n", store_buffer);
+            }
+        
+        } else { // eol found, leave recv while and append to string 
+            strncat(store_buffer, rx_buffer, line_length);
+        }
+        if(eol_found) {
+            break;
+        }
+        
+    }
+    
+    //char *send_buffer = (char *) malloc(sizeof(char) * total_file_length);
+    //char *send_buffer = (char *) malloc(sizeof(char) * 1024);
+    char send_buffer[1024];
+    if(send_buffer == NULL) {
+        perror("Send Malloc fail: ");
+       // return -1;
+    }
+
+    uint32_t bytes_read = 0;
+
+    if(pthread_mutex_lock(&mutex) != 0) {
+        perror("Mutex lock fail:");
+    }
+
+    // seek to the EOF
+    off_t total_file_length = 0;
+    if((total_file_length = lseek(fd, 0, SEEK_END))== -1) {
+        perror("lseek error: ");
+       // return -1;
+    }
+    if(write(fd, store_buffer, total_length) == -1) {
+        perror("File writer fail: ");
+       // return -1;
+    }
+    
+    
+   // long total_file_length = ftell(fd); 
+    // if((total_file_length = lseek(fd, 0, SEEK_END))== -1) {
+    //     perror("lseek error: ");
+    //     return -1;
+    // }
+    
+
+    
+    if((lseek(fd, 0, SEEK_SET))== -1) {
+        perror("lseek error: ");
+      //  return -1;
+    }
+    
+    
+    while((bytes_read = read(fd, send_buffer, 1024)) > 0) {
+        if( bytes_read == -1) { 
+            perror("Read error: ");
+          //  return -1;
+        }
+        if(send(client_fd, send_buffer, bytes_read, 0) == -1) {
+        // printf("send error :\n");
+            perror("Send error: ");
+          //  return -1;
+        }
+    }
+    
+    // free(send_buffer);
+    // after send 
+
+
+    client_meta_copy->t_complete = true;
+
+    if(pthread_mutex_unlock(&mutex) != 0) {
+        perror("Mutex unlock fail:");
+    }
+    
+    close(client_fd);
+    client_fd = -1;
+    eol_found = false;
+    // free(new_ptr);
+    free(store_buffer);
+    return NULL;
+
+}
 int main(int argc, char * argv[]) {
 
     bool daemon = false; 
@@ -157,6 +454,10 @@ int main(int argc, char * argv[]) {
         return -1;
     }
 
+    // make sokcet non blocking 
+    int flags = fcntl(sfd, F_GETFL, 0);
+    fcntl(sfd, F_SETFL, flags | O_NONBLOCK);
+
     // set socket to reuse port 
     if (setsockopt(sfd,SOL_SOCKET,SO_REUSEADDR,&yes,sizeof yes) == -1) {
      //   printf("sockopt error \n"); 
@@ -193,135 +494,76 @@ int main(int argc, char * argv[]) {
         return -1;
     }
 
+
+    // if(start_timer() == EXIT_FAILURE) {
+    //     perror("Start timer: ");
+    //     return -1;
+    // }
+
+    pthread_mutex_init(&mutex, NULL);
+
+
+    // create thread for timer 
+    int stat = pthread_create(&timer_thread, NULL, timer_handle, NULL);
+    if(stat != 0) {
+        perror("Thread create: ");
+        return -1;
+    } 
     struct sockaddr client_addr; 
     socklen_t client_addr_size = sizeof(client_addr);
-    int client_rx = 0; 
-    char rx_buffer[INIT_BUFFER_SIZE];
-    bool eol_found = false;
-    int line_length = 0;
-    int total_length = 0;
-    char *new_ptr = NULL;
+    // int client_rx = 0; 
+    // char rx_buffer[INIT_BUFFER_SIZE];
+    // bool eol_found = false;
+    // int line_length = 0;
+    // int total_length = 0;
+    // char *new_ptr = NULL;
 
 
-    while(1) { // run until signal is received
+    while(terminate == false) { // run until signal is received
 
         
-        if((client_fd = accept(sfd, &client_addr, &client_addr_size)) == -1) { // do nothing
+        if(((client_fd = accept(sfd, &client_addr, &client_addr_size)) == -1) && errno == EWOULDBLOCK) { 
+          //  printf("no accept, checking for thread join\n");
+            check_thread_join(false);
+        } else if (client_fd == -1) {// check if threads have completed  
+            printf("accept error\n");
+            perror("accept error");
+            return -1;
         } else { // recv data 
-            
-             // open file 
-            store_buffer = (char *) calloc(INIT_BUFFER_SIZE, sizeof(char));
-            if(store_buffer == NULL) {
-               // printf("Calloc:\n");
-                perror("Calloc fail :");
-                return -1;
-            }
-            //printf("calloc done\n");
-            memset(store_buffer, '\0', INIT_BUFFER_SIZE);
-
-            total_length = 0;
-            
-            struct sockaddr_in *temp_client_addr = (struct sockaddr_in*) &client_addr;    
-            // log connected to client 
-           // printf("Connected to client %s \n", inet_ntoa(temp_client_addr->sin_addr));
-            syslog(LOG_DEBUG, "Connected to client %s", inet_ntoa(temp_client_addr->sin_addr));
-            
-            // loop until client closes connection or \n is found
-            while(((client_rx = recv(client_fd, rx_buffer, sizeof(rx_buffer), 0)) > 0) && (!(eol_found))) {
-                
-               // printf("received data %s\n", rx_buffer);
-                line_length = 0;
-
-                for(int i = 0; i < client_rx; i++) {
-                    line_length++;
-                    if(rx_buffer[i] == '\n') {
-                        eol_found = true;
-                     //   printf("eof found at %d\n", line_length);
-                        break;
-                    }
-                    
-                }
-
-                total_length += line_length;
-
-                if(total_length >= INIT_BUFFER_SIZE) { // if total store buffer is falling short, realloc
-
-                    if(!(new_ptr = realloc(store_buffer, INIT_BUFFER_SIZE + total_length + 1))) {
-                     //   printf("realloc :\n");    
-                        perror("Realloc fail :");
-                        return -1;
-                    } else { // append to the string
-                        store_buffer = new_ptr;
-                        strncat(store_buffer, rx_buffer, line_length);
-                      //  printf("%s concat\n", store_buffer);
-                    }
-                
-                } else { // eol found, leave recv while and append to string 
-                    strncat(store_buffer, rx_buffer, line_length);
-                }
-
-                if(eol_found) {
-                    break;
-                }
-                
-            }
-            
-            
-            // seek to the EOF
-            off_t total_file_length = 0;
-            if((total_file_length = lseek(fd, 0, SEEK_END))== -1) {
-                perror("lseek error: ");
-                return -1;
-
-            }
-            if(write(fd, store_buffer, total_length) == -1) {
-                perror("File writer fail: ");
+            //creat a node
+            cnode_t *new = (cnode_t *) malloc(sizeof(cnode_t)); 
+            if(new == NULL) {
+                perror(" Node malloc fail:"); 
                 return -1;
             }
             
-            free(store_buffer);
+            new->client_meta.client_fd = client_fd;
+            new->client_meta.c_addr = (struct sockaddr_in *)&client_addr;
+            new->client_meta.t_complete = false;
+            new->next = NULL;
 
-           // long total_file_length = ftell(fd); 
-            if((total_file_length = lseek(fd, 0, SEEK_END))== -1) {
-                perror("lseek error: ");
+            //create thread
+            int stat = pthread_create(&(new->client_meta.pthread), NULL, client_handle, &(new->client_meta));
+            if(stat != 0) {
+                perror("Thread create: ");
+                free(new);
                 return -1;
+            } 
 
-            }
-            
-            char *send_buffer = (char *) malloc(sizeof(char) * total_file_length);
-            if(send_buffer == NULL) {
-                perror("Send Malloc fail: ");
-                return -1;
-            }
+            printf(" Thread created ID = %lu\n", new->client_meta.pthread);
 
-            if((lseek(fd, 0, SEEK_SET))== -1) {
-                perror("lseek error: ");
-                return -1;
-
-            }
-
-            if(read(fd, send_buffer, total_file_length) == -1) {
-                perror("Read error: ");
-                return -1;
-            }
-         
-            if(send(client_fd, send_buffer, total_file_length, 0) == -1) {
-               // printf("send error :\n");
-                perror("Send error: ");
-                return -1;
-            }
-
-            free(send_buffer);
-            // after send 
-            close(client_fd);
-            client_fd = -1;
-            eol_found = false;
+            // add node to Linked list, add at the head
+            new->next = head;
+            head = new;
         }
+            
 
     }
-
-    close(sfd);
-    close(fd);
+    //printf("check thread till nulll\n");
+    check_thread_join(true);
+    exit_cleaner();
+    // close(sfd);
+    // close(fd);
 
 }
 
