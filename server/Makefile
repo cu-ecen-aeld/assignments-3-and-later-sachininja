@@ -1,27 +1,12 @@
-# Makefile for Assignment 6
-CC = gcc
-CROSS_COMPILE =
-CFLAGS := -g -Wall -Werror -pthread
-LDFLAGS := -pthread -lrt
-ifeq ($(CC),)
-	CC = $(CROSS_COMPILE)gcc
-endif
-ifeq ($(CFLAGS),)
-	CFLAGS = -g -Wall -Werror -pthread
-endif
-ifeq ($(LDFLAGS),)
-	LDFLAGS = -pthread -lrt
-endif
+CROSS_COMPILE=
+CC 	?= $(CROSS_COMPILE)gcc
+CFLAGS	?= -g -Werror -Wall
+LDFLAGS ?= -pthread -lrt
+SRC = aesdsocket.c
+OUTPUT = aesdsocket
 
-SRC := aesdsocket.c
-TARGET = aesdsocket
-TARGET ?= aesdsocket
-
-all: $(TARGET)
-
-$(TARGET) : $(SRC)
-	$(CROSS_COMPILE)$(CC) $(CFLAGS) -o $(TARGET) aesdsocket.c $(LDFLAGS)
-	$(CC) $(CFLAGS) -o $(TARGET) aesdsocket.c $(LDFLAGS)
+all:
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $(OUTPUT) $(SRC) 
 
 clean:
-	-rm -f *.o $(TARGET) *.elf *.map
+	-rm -f *.o $(OUTPUT) *.elf *.map
