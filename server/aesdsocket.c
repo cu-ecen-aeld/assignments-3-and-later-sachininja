@@ -211,15 +211,15 @@ void exit_cleaner() {
     unlink("/var/tmp/aesdsocketdata");
 
 
-    free(previous);
-    free(current);
-    free(head);
+    // free(previous);
+    // free(current);
+    // free(head);
 
 }
 // if true loop until head == NULL
 void check_thread_join(bool val) {
 
-    do{ 
+   do{ 
         current = head;
         previous = head;
         while(current != NULL) {
@@ -227,36 +227,61 @@ void check_thread_join(bool val) {
             if (current->client_meta.t_complete == true) {
                // printf("Exited Thread %lu sucessfully\n", (current->client_meta.pthread));
 
-                if(current == head)
+                if(current == head) { 
                     head = current->next;
-                else 
+                    current->next = NULL;
+                    pthread_join(current->client_meta.pthread, NULL);
+                    free(current);
+                    current = head; 
+                } else {
                     previous->next = current->next;
-
-                pthread_join(current->client_meta.pthread, NULL);
-
-                free(current);
-
-                if(current == head) 
-                    current = head;
-                else
-                    current = previous->next; 
+                    current->next = NULL;
+                    pthread_join(current->client_meta.pthread, NULL);
+                    free(current);
+                    current = previous->next;
+                }
             }
             else {
                 previous = current;
                 current = current->next;
             }
+        }
 
             if(head == NULL) { 
                 val = false;
                 current = NULL;
                // printf("head == NULL");
             }
-        }
-        if(head == NULL) 
-            val = false;
-      //  printf("Stuck here val %u\n", val);
-    }while(val == true);
+//         }
+//         if(head == NULL) 
+//             val = false;
+//       //  printf("Stuck here val %u\n", val);
+     }while(val == true);
 
+        // while(current != NULL) {
+        //     //Updating head if first node is complete
+        //     if ((current->client_meta.t_complete == true) && (current == head)) {
+        //        // printf("Exited from Thread %lu sucessfully\n", (current->thread_data.threadid));
+        //         head = current->next;
+        //         current->next = NULL;
+        //         pthread_join(current->client_meta.pthread, NULL);
+        //         free(current);
+        //         current = head;
+        //     }
+        //     else if ((current->client_meta.t_complete == true) && (current != head)) { // Deleting any other node
+        //        // printf("Exited from Thread %d sucessfully\n", (int)(current->thread_data.threadid));
+        //         previous->next = current->next;
+        //         current->next = NULL;
+        //         pthread_join(current->client_meta.pthread, NULL);
+        //         free(current);
+        //         current = previous->next;
+        //     } 
+        //     else {
+        //         // Traverse Linked List with previous behind current
+        //         previous = current;
+        //         current = current->next;
+        //     }
+        // }
 
     // //free(head);
 
@@ -285,6 +310,7 @@ void* client_handle(void *client_meta) {
     if(store_buffer == NULL) {
        // printf("Calloc:\n");
         perror("Calloc fail :");
+       // free(store_buffer);
        // return -1;
     }
 
@@ -316,6 +342,8 @@ void* client_handle(void *client_meta) {
             if(!(new_ptr = realloc(store_buffer, INIT_BUFFER_SIZE + total_length + 1))) {
              //   printf("realloc :\n");    
                 perror("Realloc fail :");
+              //  free(store_buffer);
+               // free(new_ptr);
                // return -1;
             } else { // append to the string
                 store_buffer = new_ptr;
@@ -344,16 +372,19 @@ void* client_handle(void *client_meta) {
 
     if(pthread_mutex_lock(&mutex) != 0) {
         perror("Mutex lock fail:");
+       // free(store_buffer);
     }
 
     // seek to the EOF
     off_t total_file_length = 0;
     if((total_file_length = lseek(fd, 0, SEEK_END))== -1) {
         perror("lseek error: ");
+       // free(store_buffer);
        // return -1;
     }
     if(write(fd, store_buffer, total_length) == -1) {
         perror("File writer fail: ");
+     //   free(store_buffer);
        // return -1;
     }
     
@@ -472,7 +503,6 @@ int main(int argc, char * argv[]) {
         return -1;
     }
 
-    //free servinfo 
     freeaddrinfo(servinfo);
     
     // create daemon if required, bind is complete
@@ -495,11 +525,6 @@ int main(int argc, char * argv[]) {
     }
 
 
-    // if(start_timer() == EXIT_FAILURE) {
-    //     perror("Start timer: ");
-    //     return -1;
-    // }
-
     pthread_mutex_init(&mutex, NULL);
 
 
@@ -511,12 +536,6 @@ int main(int argc, char * argv[]) {
     } 
     struct sockaddr client_addr; 
     socklen_t client_addr_size = sizeof(client_addr);
-    // int client_rx = 0; 
-    // char rx_buffer[INIT_BUFFER_SIZE];
-    // bool eol_found = false;
-    // int line_length = 0;
-    // int total_length = 0;
-    // char *new_ptr = NULL;
 
 
     while(terminate == false) { // run until signal is received
@@ -546,7 +565,7 @@ int main(int argc, char * argv[]) {
             int stat = pthread_create(&(new->client_meta.pthread), NULL, client_handle, &(new->client_meta));
             if(stat != 0) {
                 perror("Thread create: ");
-                free(new);
+               // free(new);
                 return -1;
             } 
 
@@ -559,11 +578,9 @@ int main(int argc, char * argv[]) {
             
 
     }
-    //printf("check thread till nulll\n");
     check_thread_join(true);
     exit_cleaner();
-    // close(sfd);
-    // close(fd);
+
 
 }
 
