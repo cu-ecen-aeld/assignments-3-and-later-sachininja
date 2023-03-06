@@ -482,8 +482,6 @@ int main(int argc, char * argv[]) {
 error_clean:
     check_thread_join(true);
     exit_cleaner();
-
-
 }
 
 
