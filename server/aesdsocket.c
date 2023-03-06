@@ -74,15 +74,15 @@ void* timer_handle(void *arg) {
 
         if(write(fd, timestr, strlen(timestr)) == -1) {
             perror("Time File writer fail: ");
-           // return -1;
         }
 
         if(pthread_mutex_unlock(&mutex) != 0) {
             perror("Mutex unlock fail:");
         }
-   
-        sleep(10);
-
+        if(!terminate) 
+            sleep(10);
+        else  
+            return NULL;
     }
     return NULL;
 
@@ -157,9 +157,6 @@ void exit_cleaner() {
     pthread_mutex_destroy(&mutex);
 
     syslog(LOG_DEBUG, "Caught Signal, Exiting\n");
-        // closelog();
-    // if(client_fd > 0)
-    //     close(client_fd);
         
     if(sfd > 0)
         close(sfd);
@@ -257,15 +254,14 @@ void* client_handle(void *client_meta) {
         }
         total_length += line_length;
         if(total_length >= INIT_BUFFER_SIZE) { // if total store buffer is falling short, realloc
-            if(!(new_ptr = realloc(store_buffer, INIT_BUFFER_SIZE + total_length + 1))) {
-             //   printf("realloc :\n");    
+            if(!(new_ptr = realloc(store_buffer, INIT_BUFFER_SIZE + total_length + 1))) {   
                 perror("Realloc fail :");
-                free(store_buffer);
+                // free(store_buffer);
+                goto error_jump;
 
             } else { // append to the string
                 store_buffer = new_ptr;
                 strncat(store_buffer, rx_buffer, line_length);
-              //  printf("%s concat\n", store_buffer);
             }
         
         } else { // eol found, leave recv while and append to string 
@@ -278,33 +274,33 @@ void* client_handle(void *client_meta) {
     }
     
     char send_buffer[1024];
-    if(send_buffer == NULL) {
-        perror("Send Malloc fail: ");
-
-    }
 
     uint32_t bytes_read = 0;
 
     if(pthread_mutex_lock(&mutex) != 0) {
         perror("Mutex lock fail:");
-        free(store_buffer);
+        // free(store_buffer);
+        goto error_jump;
     }
 
     // seek to the EOF
     off_t total_file_length = 0;
     if((total_file_length = lseek(fd, 0, SEEK_END))== -1) {
         perror("lseek error: ");
-        free(store_buffer);
+        // free(store_buffer);
+        goto mutex_unlock_error_jump;
    
     }
     if(write(fd, store_buffer, total_length) == -1) {
         perror("File writer fail: ");
-     //   free(store_buffer);
+        // free(store_buffer);
+        goto mutex_unlock_error_jump;
 
     }   
    
     if((lseek(fd, 0, SEEK_SET))== -1) {
         perror("lseek error: ");
+        goto mutex_unlock_error_jump;
 
     }
     
@@ -312,13 +308,15 @@ void* client_handle(void *client_meta) {
     while((bytes_read = read(fd, send_buffer, 1024)) > 0) {
         if( bytes_read == -1) { 
             perror("Read error: ");
-          //  return -1;
+            goto mutex_unlock_error_jump;
         }
         if(send(client_fd, send_buffer, bytes_read, 0) == -1) {
             perror("Send error: ");
-          //  return -1;
+            goto mutex_unlock_error_jump;
         }
     }
+    
+mutex_unlock_error_jump:
 
     client_meta_copy->t_complete = true;
 
@@ -326,7 +324,7 @@ void* client_handle(void *client_meta) {
         perror("Mutex unlock fail:");
     }
     
-    error_jump:
+error_jump:
 
     close(client_fd);
     client_fd = -1;
@@ -447,15 +445,16 @@ int main(int argc, char * argv[]) {
           //  printf("no accept, checking for thread join\n");
             check_thread_join(false);
         } else if (client_fd == -1) {// check if threads have completed  
-            printf("accept error\n");
             perror("accept error");
-            return -1;
+            goto error_clean;
+
         } else { // recv data 
             //creat a node
             cnode_t *new = (cnode_t *) malloc(sizeof(cnode_t)); 
             if(new == NULL) {
                 perror(" Node malloc fail:"); 
-                return -1;
+                //return -1;
+                goto error_clean;
             }
             
             new->client_meta.client_fd = client_fd;
@@ -467,8 +466,8 @@ int main(int argc, char * argv[]) {
             int stat = pthread_create(&(new->client_meta.pthread), NULL, client_handle, &(new->client_meta));
             if(stat != 0) {
                 perror("Thread create: ");
-               // free(new);
-                return -1;
+                free(new);
+                goto error_clean;
             } 
 
             printf(" Thread created ID = %lu\n", new->client_meta.pthread);
@@ -480,6 +479,7 @@ int main(int argc, char * argv[]) {
             
 
     }
+error_clean:
     check_thread_join(true);
     exit_cleaner();
 
