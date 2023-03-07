@@ -1,13 +1,12 @@
-# Makefile for cross compilation and native compilation 
-# Author : Sachin Mathad
+CROSS_COMPILE=
+CC 	?= $(CROSS_COMPILE)gcc
+CFLAGS	?= -g -Werror -Wall
+LDFLAGS ?= -pthread -lrt
+SRC = aesdsocket.c
+OUTPUT = aesdsocket
 
-
-all: aesdsocket
-
-CC=gcc
-
-aesdsocket: aesdsocket.c
-	@($(CROSS_COMPILE)$(CC) -o aesdsocket aesdsocket.c -Wall -Werror)
+all:
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $(OUTPUT) $(SRC) 
 
 clean:
-	@rm -f aesdsocket
+	-rm -f *.o $(OUTPUT) *.elf *.map
