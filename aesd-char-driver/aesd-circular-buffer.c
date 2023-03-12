@@ -32,6 +32,31 @@ struct aesd_buffer_entry *aesd_circular_buffer_find_entry_offset_for_fpos(struct
     /**
     * TODO: implement per description
     */
+   // calculate the total size of the array 
+   int array_str_len = 0;
+   int req_len = char_offset;
+   int curr_read = buffer->out_offs;
+   bool found = false;  
+
+   for( int i = 0; i < AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED; i++) {
+
+    // add until greater than chat_offset
+    array_str_len += buffer->entry[curr_read].size;
+
+    req_len -= buffer->entry[curr_read].size;
+
+    if(char_offset < array_str_len ) {
+        found = true;
+        break;
+    }
+    curr_read++;
+   }
+
+   if(found == true) {
+    *entry_offset_byte_rtn = req_len;
+    return (&buffer->entry[curr_read]);
+   }
+
     return NULL;
 }
 
@@ -44,9 +69,33 @@ struct aesd_buffer_entry *aesd_circular_buffer_find_entry_offset_for_fpos(struct
 */
 void aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, const struct aesd_buffer_entry *add_entry)
 {
-    /**
-    * TODO: implement per description
-    */
+
+   // if buffer is full, increment read pointer 
+   if(buffer->full) {
+    
+    if((buffer->out_offs + 1) == AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED) {
+        buffer->out_offs = 0; // index 0
+    } else {
+        buffer->out_offs += 1;
+    }
+   }
+    // store values in the current position of write buffer 
+    buffer->entry[buffer->in_offs].buffptr =  add_entry->buffptr;
+    buffer->entry[buffer->in_offs].size =  add_entry->size;
+
+    // increment read pointer 
+    if((buffer->in_offs + 1) == AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED) {
+        buffer->in_offs = 0; // index 0
+    } else {
+        buffer->in_offs += 1;
+    }
+
+    // check if this filled the buffer by comparing in and out ptr 
+    if(buffer->in_offs == buffer->out_offs) {
+        buffer->full = true;
+    }
+
+
 }
 
 /**
