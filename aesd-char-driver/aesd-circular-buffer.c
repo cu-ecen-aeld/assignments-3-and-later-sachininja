@@ -43,18 +43,21 @@ struct aesd_buffer_entry *aesd_circular_buffer_find_entry_offset_for_fpos(struct
     // add until greater than chat_offset
     array_str_len += buffer->entry[curr_read].size;
 
-    req_len -= buffer->entry[curr_read].size;
 
     if(char_offset < array_str_len ) {
         found = true;
         break;
     }
+    
+    req_len -= buffer->entry[curr_read].size;
     curr_read++;
+    if(curr_read >= AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED)
+	    curr_read = 0;
    }
 
    if(found == true) {
     *entry_offset_byte_rtn = req_len;
-    return (&buffer->entry[curr_read]);
+    return &buffer->entry[curr_read];
    }
 
     return NULL;
@@ -94,8 +97,7 @@ void aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, const s
     if(buffer->in_offs == buffer->out_offs) {
         buffer->full = true;
     }
-
-
+    
 }
 
 /**
