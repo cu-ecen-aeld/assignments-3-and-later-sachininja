@@ -2,7 +2,7 @@
 # Assignment 1 
 # Description: Open and write to file arguments given in through CLI 
 
-#!/bin/bash
+#!/bin/sh
 
 # error case if arguments not equal to 2
 if [ $# -ne 2 ] 
