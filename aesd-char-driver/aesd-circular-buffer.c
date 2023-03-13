@@ -35,31 +35,35 @@ struct aesd_buffer_entry *aesd_circular_buffer_find_entry_offset_for_fpos(struct
    // calculate the total size of the array 
    int array_str_len = 0;
    int req_len = char_offset;
+   // start reading from current out_offs file
    int curr_read = buffer->out_offs;
+   // set found to false until the required char offset is found
    bool found = false;  
-
+   // run through the buffer 	
    for( int i = 0; i < AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED; i++) {
 
     // add until greater than chat_offset
     array_str_len += buffer->entry[curr_read].size;
 
-
+    // if array str len is greater than char offset, the char offset is found in the current out_offs
     if(char_offset < array_str_len ) {
         found = true;
         break;
     }
-    
+    // reduce lenth to find the right offset 
     req_len -= buffer->entry[curr_read].size;
+    // increment current read 	   
     curr_read++;
+ 
     if(curr_read >= AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED)
 	    curr_read = 0;
    }
-
+   // if found, set the offset based on req len and return the buffer entry 
    if(found == true) {
     *entry_offset_byte_rtn = req_len;
     return &buffer->entry[curr_read];
    }
-
+   // else not found return null 
     return NULL;
 }
 
