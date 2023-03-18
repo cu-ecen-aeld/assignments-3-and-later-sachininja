@@ -107,8 +107,8 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
     struct aesd_buffer_entry aesd_entry; // this entry will be stored with kmallocd aesd_dev elements
     char* check_to_free_overwrite;
     int i = 0;
-    
-    ssize_t retval = -ENOMEM;
+    // unless there is error return count
+    ssize_t retval = count;
 
 
     if (mutex_lock_interruptible(&aesd_device.file_lock) != 0) {
