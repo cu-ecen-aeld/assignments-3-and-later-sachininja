@@ -16,6 +16,9 @@
 #include <linux/printk.h>
 #include <linux/types.h>
 #include <linux/cdev.h>
+#include "linux/slab.h"
+#include <linux/mutex.h>
+#include "linux/string.h"
 #include <linux/fs.h> // file_operations
 #include "aesdchar.h"
 int aesd_major =   0; // use dynamic major
@@ -101,9 +104,9 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
                 loff_t *f_pos)
 {
     struct aesd_dev *device = filp->private_data; // append to this struct 
-    struct aesd_buffer_entry aesd_entry = NULL; // this entry will be stored with kmallocd aesd_dev elements
-    int terminator_rx = 0; 
-    char* check_to_free_overwrite = NULL;
+    struct aesd_buffer_entry aesd_entry; // this entry will be stored with kmallocd aesd_dev elements
+    char* check_to_free_overwrite;
+    int i = 0;
     
     ssize_t retval = -ENOMEM;
 
@@ -138,13 +141,13 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
         device->ele_size += count;
     }
 
-    for(int i = 0; i < device->ele_size; i++) {
+    for(i = 0; i < device->ele_size; i++) {
 
         if(device->ele_buffer_ptr[i] == '\n') {
            aesd_entry.size = i + 1; 
            aesd_entry.buffptr =  device->ele_buffer_ptr;
 
-            check_to_free_overwrite = aesd_circular_buffer_add_entry(&device->circular_buffer, &aesd_entry);
+            check_to_free_overwrite = (char *)aesd_circular_buffer_add_entry(&device->circular_buffer, &aesd_entry);
 
             if(check_to_free_overwrite != NULL) {
                 kfree(check_to_free_overwrite);
@@ -225,7 +228,7 @@ void aesd_cleanup_module(void)
 
     cdev_del(&aesd_device.cdev);
 
-    AESD_CIRCULAR_BUFFER_FOREACH(entry, &aesd_device.aesd_circular_buffer, index) {
+    AESD_CIRCULAR_BUFFER_FOREACH(entry, &aesd_device.circular_buffer, index) {
       kfree(entry->buffptr);
     }
 
