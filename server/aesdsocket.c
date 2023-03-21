@@ -25,6 +25,7 @@
 #include<sys/time.h>
 
 
+#define AESD_CHAR_DRIVER 1 
 #define INIT_BUFFER_SIZE 1024
 
 // socket descriptor 
@@ -33,7 +34,10 @@ int sfd;
 int fd;
 
 // mutex 
+#ifndef AESD_CHAR_DRIVER
 pthread_mutex_t mutex;
+pthread_t timer_thread;
+#endif
 
 bool terminate = false;
 
@@ -55,9 +59,7 @@ cnode_t *head = NULL;
 cnode_t *previous = NULL; 
 cnode_t *current = NULL;
 
-pthread_t timer_thread;
-
-
+#ifndef AESD_CHAR_DRIVER
 void* timer_handle(void *arg) {
 
     while(!terminate) {
@@ -87,7 +89,7 @@ void* timer_handle(void *arg) {
     return NULL;
 
 }
-
+#endif
 // reentrant function
 void handler(int sig, siginfo_t *info, void *ucontext) {
 
@@ -154,7 +156,9 @@ int demonize() {
 
 void exit_cleaner() {
 
+#ifndef AESD_CHAR_DRIVER
     pthread_mutex_destroy(&mutex);
+#endif
 
     syslog(LOG_DEBUG, "Caught Signal, Exiting\n");
         
@@ -164,11 +168,11 @@ void exit_cleaner() {
     if(fd > 0)
         close(fd);
     
-    
     closelog();
-    
-    unlink("/var/tmp/aesdsocketdata");
 
+#ifndef AESD_CHAR_DRIVER   
+    unlink("/var/tmp/aesdsocketdata");
+#endif
 }
 // if true loop until head == NULL
 void check_thread_join(bool val) {
@@ -277,32 +281,34 @@ void* client_handle(void *client_meta) {
 
     uint32_t bytes_read = 0;
 
+#ifndef AESD_CHAR_DRIVER
     if(pthread_mutex_lock(&mutex) != 0) {
         perror("Mutex lock fail:");
         // free(store_buffer);
         goto error_jump;
     }
-
+#endif
     // seek to the EOF
-    off_t total_file_length = 0;
-    if((total_file_length = lseek(fd, 0, SEEK_END))== -1) {
-        perror("lseek error: ");
-        // free(store_buffer);
-        goto mutex_unlock_error_jump;
+    // off_t total_file_length = 0;
+    // if((total_file_length = lseek(fd, 0, SEEK_END))== -1) {
+    //     perror("lseek error: ");
+    //     // free(store_buffer);
+    //     goto mutex_unlock_error_jump;
    
-    }
+    // }
     if(write(fd, store_buffer, total_length) == -1) {
         perror("File writer fail: ");
         // free(store_buffer);
         goto mutex_unlock_error_jump;
 
     }   
-   
+#ifndef AESD_CHAR_DRIVER 
     if((lseek(fd, 0, SEEK_SET))== -1) {
         perror("lseek error: ");
         goto mutex_unlock_error_jump;
 
     }
+#endif
     
     
     while((bytes_read = read(fd, send_buffer, 1024)) > 0) {
@@ -319,11 +325,11 @@ void* client_handle(void *client_meta) {
 mutex_unlock_error_jump:
 
     client_meta_copy->t_complete = true;
-
+#ifndef AESD_CHAR_DRIVER
     if(pthread_mutex_unlock(&mutex) != 0) {
         perror("Mutex unlock fail:");
     }
-    
+#endif  
 error_jump:
 
     close(client_fd);
@@ -412,11 +418,23 @@ int main(int argc, char * argv[]) {
 
 
     // open file 
-    if((fd = open("/var/tmp/aesdsocketdata", O_RDWR | O_CREAT | O_TRUNC, S_IWUSR | S_IRUSR | S_IWGRP | S_IRGRP | S_IROTH)) == -1) {
+
+#ifndef AESD_CHAR_DRIVER
+    char *filename = "/var/tmp/aesdsocketdata";
+    if((fd = open(filename, O_RDWR | O_CREAT | O_TRUNC, S_IWUSR | S_IRUSR | S_IWGRP | S_IRGRP | S_IROTH)) == -1) {
        // printf("File open error: ");    
         perror("File open error: ");
         return -1;
     }
+#else
+    char *filename = "/dev/aesdchar";
+    if((fd = open(filename, O_RDWR | O_CREAT | O_APPEND, S_IWUSR | S_IRUSR | S_IWGRP | S_IRGRP | S_IROTH)) == -1) {
+       // printf("File open error: ");    
+        perror("File open error: ");
+        return -1;
+    }
+#endif
+    
     // listen socket descriptor and set backlog limit to 20
     if(listen(sfd, 20) == -1) {
      //   printf("listen error:\n");
@@ -424,16 +442,18 @@ int main(int argc, char * argv[]) {
         return -1;
     }
 
-
+#ifndef AESD_CHAR_DRIVER
     pthread_mutex_init(&mutex, NULL);
+#endif
 
-
+#ifndef AESD_CHAR_DRIVER
     // create thread for timer 
     int stat = pthread_create(&timer_thread, NULL, timer_handle, NULL);
     if(stat != 0) {
         perror("Thread create: ");
         return -1;
     } 
+#endif
     struct sockaddr client_addr; 
     socklen_t client_addr_size = sizeof(client_addr);
     int client_fd = -1;
