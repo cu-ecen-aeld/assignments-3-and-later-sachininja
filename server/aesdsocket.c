@@ -32,7 +32,7 @@
 // socket descriptor 
 int sfd; 
 // file descriptor 
-int fd;
+int fd = -1;
 
 // mutex 
 #ifndef AESD_CHAR_DRIVER
@@ -166,8 +166,10 @@ void exit_cleaner() {
     if(sfd > 0)
         close(sfd);
        
-    if(fd > 0)
+    if(fd > 0) { 
         close(fd);
+        fd = -1;
+    }
     
     closelog();
 
@@ -376,8 +378,6 @@ int main(int argc, char * argv[]) {
     struct addrinfo hints;
     struct addrinfo *servinfo;  // will point to the results
 
-
-
     // setsckopt 
     const int yes = 1;
     
@@ -437,16 +437,12 @@ int main(int argc, char * argv[]) {
     }
 #else
     char *filename = "/dev/aesdchar";
-    // if((fd = open(filename, O_RDWR | O_CREAT | O_APPEND, S_IWUSR | S_IRUSR | S_IWGRP | S_IRGRP | S_IROTH)) == -1) {
-    //    // printf("File open error: ");    
-    //     perror("File open error: ");
-    //     return -1;
-    // }
+    // move 'open' inside accept, looks like full test in qemu is hanging up due to not being able to unload driver 
+    //as lsmod shows fd is being used (discussion on discord) open only upon accept. 
 #endif
     
     // listen socket descriptor and set backlog limit to 20
     if(listen(sfd, 20) == -1) {
-     //   printf("listen error:\n");
         perror("Listen error: ");
         return -1;
     }
@@ -466,7 +462,6 @@ int main(int argc, char * argv[]) {
     struct sockaddr client_addr; 
     socklen_t client_addr_size = sizeof(client_addr);
     int client_fd = -1;
-    bool file_open = false;
 
     while(terminate == false) { // run until signal is received
 
@@ -488,15 +483,13 @@ int main(int argc, char * argv[]) {
             }
 
 #ifdef AESD_CHAR_DRIVER 
-            if(!file_open) {        
+            if(fd < 0) {        
                 if((fd = open(filename, O_RDWR | O_CREAT | O_APPEND, S_IWUSR | S_IRUSR | S_IWGRP | S_IRGRP | S_IROTH)) == -1) {   
                     perror("File open error: ");
                     return -1;
                 }
-                file_open= true;
             }
-#endif
-            
+#endif     
             new->client_meta.client_fd = client_fd;
             new->client_meta.c_addr = (struct sockaddr_in *)&client_addr;
             new->client_meta.t_complete = false;
