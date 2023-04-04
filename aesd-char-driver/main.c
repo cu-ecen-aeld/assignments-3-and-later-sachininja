@@ -63,10 +63,10 @@ ssize_t aesd_read(struct file *filp, char __user *buf, size_t count,
 
     struct aesd_dev* device = filp->private_data; 
     struct aesd_buffer_entry* buffer_entry; 
-    // rx buf null check 
-    if(buf == NULL) {
-        goto leave;;
-    }
+    // // rx buf null check 
+    // if(buf == NULL) {
+    //     goto leave;;
+    // }
     
     PDEBUG("read %zu bytes with offset %lld",count,*f_pos);
     /**
@@ -87,6 +87,10 @@ ssize_t aesd_read(struct file *filp, char __user *buf, size_t count,
     }
 
     bytes_read = buffer_entry->size - entry_offset;
+
+    if(buffer_entry->buffptr == NULL) {
+        goto leave;
+    }
 
     if(copy_to_user( buf, buffer_entry->buffptr + entry_offset, bytes_read )!= 0)
 	{
@@ -113,7 +117,7 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
     // unless there is error return count
     ssize_t retval = count;
     
-    // rx buf null check 
+    //rx buf null check 
     if(buf == NULL) {
         goto write_leave;
     }
