@@ -437,11 +437,11 @@ int main(int argc, char * argv[]) {
     }
 #else
     char *filename = "/dev/aesdchar";
-    if((fd = open(filename, O_RDWR | O_CREAT | O_APPEND, S_IWUSR | S_IRUSR | S_IWGRP | S_IRGRP | S_IROTH)) == -1) {
-       // printf("File open error: ");    
-        perror("File open error: ");
-        return -1;
-    }
+    // if((fd = open(filename, O_RDWR | O_CREAT | O_APPEND, S_IWUSR | S_IRUSR | S_IWGRP | S_IRGRP | S_IROTH)) == -1) {
+    //    // printf("File open error: ");    
+    //     perror("File open error: ");
+    //     return -1;
+    // }
 #endif
     
     // listen socket descriptor and set backlog limit to 20
@@ -466,6 +466,7 @@ int main(int argc, char * argv[]) {
     struct sockaddr client_addr; 
     socklen_t client_addr_size = sizeof(client_addr);
     int client_fd = -1;
+    bool file_open = false;
 
     while(terminate == false) { // run until signal is received
 
@@ -485,6 +486,16 @@ int main(int argc, char * argv[]) {
                 //return -1;
                 goto error_clean;
             }
+
+#ifdef AESD_CHAR_DRIVER 
+            if(!file_open) {        
+                if((fd = open(filename, O_RDWR | O_CREAT | O_APPEND, S_IWUSR | S_IRUSR | S_IWGRP | S_IRGRP | S_IROTH)) == -1) {   
+                    perror("File open error: ");
+                    return -1;
+                }
+                file_open= true;
+            }
+#endif
             
             new->client_meta.client_fd = client_fd;
             new->client_meta.c_addr = (struct sockaddr_in *)&client_addr;

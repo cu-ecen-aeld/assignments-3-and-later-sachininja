@@ -63,10 +63,10 @@ ssize_t aesd_read(struct file *filp, char __user *buf, size_t count,
 
     struct aesd_dev* device = filp->private_data; 
     struct aesd_buffer_entry* buffer_entry; 
-    // // rx buf null check 
-    // if(buf == NULL) {
-    //     goto leave;;
-    // }
+    // rx buf null check 
+    if(buf == NULL) {
+        goto leave;;
+    }
     
     PDEBUG("read %zu bytes with offset %lld",count,*f_pos);
     /**
@@ -119,7 +119,7 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
     
     //rx buf null check 
     if(buf == NULL) {
-        goto write_leave;
+        return 0;
     }
 
     if (mutex_lock_interruptible(&aesd_device.file_lock) != 0) {
@@ -158,7 +158,8 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
            aesd_entry.size = i + 1; 
            aesd_entry.buffptr =  device->ele_buffer_ptr;
 
-            check_to_free_overwrite = (char *)aesd_circular_buffer_add_entry(&device->circular_buffer, &aesd_entry, &total_buffer_size);
+            check_to_free_overwrite = (char *)aesd_circular_buffer_add_entry(&device->circular_buffer, &aesd_entry);
+            total_buffer_size = update_total_size(&device->circular_buffer);
 
             if(check_to_free_overwrite != NULL) {
                 kfree(check_to_free_overwrite);
