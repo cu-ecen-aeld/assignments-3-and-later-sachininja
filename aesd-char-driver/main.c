@@ -21,8 +21,10 @@
 #include "linux/string.h"
 #include <linux/fs.h> // file_operations
 #include "aesdchar.h"
+#include "aesd_ioctl.h"
 int aesd_major =   0; // use dynamic major
 int aesd_minor =   0;
+int total_buffer_size = 0; // for llseek size 
 
 MODULE_AUTHOR("Sachin Mathad"); /** TODO: fill in your name **/
 MODULE_LICENSE("Dual BSD/GPL");
@@ -49,8 +51,6 @@ int aesd_release(struct inode *inode, struct file *filp)
     /**
      * TODO: handle release
      */
-
-
     return 0;
 }
 
@@ -63,6 +63,10 @@ ssize_t aesd_read(struct file *filp, char __user *buf, size_t count,
 
     struct aesd_dev* device = filp->private_data; 
     struct aesd_buffer_entry* buffer_entry; 
+    // rx buf null check 
+    if(buf == NULL) {
+        goto leave;;
+    }
     
     PDEBUG("read %zu bytes with offset %lld",count,*f_pos);
     /**
@@ -72,7 +76,6 @@ ssize_t aesd_read(struct file *filp, char __user *buf, size_t count,
 
 		printk(KERN_ALERT "Mutex fail\n");
 		return -ERESTARTSYS;
-
 	}
 
     buffer_entry = aesd_circular_buffer_find_entry_offset_for_fpos(&device->circular_buffer, *f_pos, &entry_offset);
@@ -109,7 +112,11 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
     int i = 0;
     // unless there is error return count
     ssize_t retval = count;
-
+    
+    // rx buf null check 
+    if(buf == NULL) {
+        goto write_leave;
+    }
 
     if (mutex_lock_interruptible(&aesd_device.file_lock) != 0) {
 	    printk(KERN_ALERT "Mutex fail\n");
@@ -147,7 +154,7 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
            aesd_entry.size = i + 1; 
            aesd_entry.buffptr =  device->ele_buffer_ptr;
 
-            check_to_free_overwrite = (char *)aesd_circular_buffer_add_entry(&device->circular_buffer, &aesd_entry);
+            check_to_free_overwrite = (char *)aesd_circular_buffer_add_entry(&device->circular_buffer, &aesd_entry, &total_buffer_size);
 
             if(check_to_free_overwrite != NULL) {
                 kfree(check_to_free_overwrite);
@@ -168,12 +175,136 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
 
     return retval;
 }
+
+// update fpos with the cmd_off + number of bytes in the buffer. 
+long aesd_adjust_file_offset(struct file *filp, unsigned int cmd, unsigned int cmd_offset)
+{
+    struct aesd_dev *device = filp->private_data; // check for values from this struct 
+    unsigned int offset_counter = 0;
+    long status = 0;
+    int i;
+
+
+    // check for valid cmd number
+    if(cmd >= AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED) {
+        PDEBUG("Command number too large\n");
+        status = -EINVAL;
+        goto leave_func;
+    }
+
+    // acquire mutex to access circular buffer 
+    if (mutex_lock_interruptible(&aesd_device.file_lock) != 0) {
+
+		PDEBUG("Mutex fail\n");
+		status = -ERESTARTSYS;
+        goto leave_func;
+	}
+
+    // check for valid offset 
+    if(device->circular_buffer.entry[cmd].size < cmd_offset) {
+        PDEBUG("cmd offset fail\n");
+        status = -EINVAL;
+        goto unlock_leave;
+    }
+
+    for(i = 0; i < cmd ; i++) {
+        // if null, error or do not account for size?
+        if(device->circular_buffer.entry[i].buffptr == NULL) {
+            continue;
+        }
+        offset_counter += device->circular_buffer.entry[i].size;
+    }
+
+    // once outside add offset 
+    offset_counter += cmd_offset;
+
+    // update fpos 
+    filp->f_pos = offset_counter;
+
+    unlock_leave:
+    // mutex unlock 
+    mutex_unlock(&aesd_device.file_lock);
+
+    leave_func: 
+    return status;
+}
+
+// based on scull ioctl design 
+long aesd_ioctl_unlocked (struct file *filp, unsigned int cmd, unsigned long arg) 
+{
+    long status = 0;
+    struct aesd_seekto copy_user_seek;
+    
+    //check for valid filp 
+    if(filp == NULL) {
+        PDEBUG("filp is null\n");
+        status = -EINVAL;
+        goto ioctl_leave;
+    }
+    
+    /*
+        * from text
+        * extract the type and number bitfields, and don't decode
+        * wrong cmds: return ENOTTY (inappropriate ioctl)
+    */
+
+    if (_IOC_TYPE(cmd) != AESD_IOC_MAGIC) {
+        PDEBUG("AESD_IOC_MAGIC fail\n");
+        status = -ENOTTY;
+        goto ioctl_leave;
+    } 
+
+    if (_IOC_NR(cmd) > AESDCHAR_IOC_MAXNR) {
+        PDEBUG("AESDCHAR_IOC_MAXNR fail\n");
+        status = -ENOTTY;
+        goto ioctl_leave;
+    }
+
+    if(cmd != AESDCHAR_IOCSEEKTO) {
+        PDEBUG("ioctl func cmd fail\n");
+        status = -EINVAL;
+        goto ioctl_leave;
+    }
+
+    switch(cmd) {
+
+       case AESDCHAR_IOCSEEKTO:  
+       {
+            // copy from user 
+            if (0 != (copy_from_user(&copy_user_seek, (const void __user*)arg, sizeof(struct aesd_seekto)))) {
+                status = -EFAULT;
+                goto ioctl_leave;
+            } else { 
+                status = aesd_adjust_file_offset(filp, copy_user_seek.write_cmd, copy_user_seek.write_cmd_offset);
+            }
+       } 
+       break;
+    // default case not required due to check for valid commmand above 
+    }
+
+    ioctl_leave: 
+
+    return status;
+}
+
+loff_t aesd_llseek(struct file *filp, loff_t off, int whence) 
+{
+    int status = 0;
+    // total size is updated after every add entry
+    status = fixed_size_llseek(filp, off, whence, total_buffer_size);
+    return status;
+}
+
 struct file_operations aesd_fops = {
     .owner =    THIS_MODULE,
     .read =     aesd_read,
     .write =    aesd_write,
     .open =     aesd_open,
     .release =  aesd_release,
+    // own implementation of ioctl called from socket_driver upon special commmand to seek
+    .unlocked_ioctl = aesd_ioctl_unlocked,
+    // llseek 
+    .llseek = aesd_llseek,
 };
 
 static int aesd_setup_cdev(struct aesd_dev *dev)
@@ -209,8 +340,6 @@ int aesd_init_module(void)
     /**
      * TODO: initialize the AESD specific portion of the device
      */
-    
-
     result = aesd_setup_cdev(&aesd_device);
 
     if( result ) {

@@ -75,15 +75,18 @@ struct aesd_buffer_entry *aesd_circular_buffer_find_entry_offset_for_fpos(struct
 * Any necessary locking must be handled by the caller
 * Any memory referenced in @param add_entry must be allocated by and/or must have a lifetime managed by the caller.
 */
-char * aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, const struct aesd_buffer_entry *add_entry)
+char * aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, const struct aesd_buffer_entry *add_entry, unsigned int *total_size)
 {
 
     char *ret_ptr = NULL;
    // if buffer is full, increment read pointer 
    if(buffer->full) {
     
+    // to free the buffer, return the overwritten buffer ptr
     ret_ptr = (char *)buffer->entry[buffer->out_offs].buffptr;
 
+    // reduce the total size by the size that was lost dur to overwrite
+    buffer->total_size -= buffer->entry[buffer->out_offs].size;
     if((buffer->out_offs + 1) == AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED) {
         buffer->out_offs = 0; // index 0
     } else {
@@ -94,6 +97,8 @@ char * aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, const
     // store values in the current position of write buffer 
     buffer->entry[buffer->in_offs].buffptr =  add_entry->buffptr;
     buffer->entry[buffer->in_offs].size =  add_entry->size;
+    // add to the total size count 
+    buffer->total_size += add_entry->size;
 
     // increment read pointer 
     if((buffer->in_offs + 1) == AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED) {
@@ -106,6 +111,8 @@ char * aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, const
     if(buffer->in_offs == buffer->out_offs) {
         buffer->full = true;
     }
+
+    *total_size = buffer->total_size;
     return ret_ptr;
 }
 

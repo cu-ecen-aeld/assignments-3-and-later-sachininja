@@ -23,6 +23,7 @@
 #include<linux/fs.h>
 #include<pthread.h>
 #include<sys/time.h>
+#include "../aesd-char-driver/aesd_ioctl.h"
 
 
 #define AESD_CHAR_DRIVER 1 
@@ -222,6 +223,8 @@ void* client_handle(void *client_meta) {
     int line_length = 0;
     int total_length = 0;
     char *new_ptr = NULL;
+    char ioctl_cmd[] = "AESDCHAR_IOCSEEKTO:";
+    struct aesd_seekto ioctl_cmd_request;
     
 
     client_meta_t *client_meta_copy = (client_meta_t *)client_meta;
@@ -288,20 +291,26 @@ void* client_handle(void *client_meta) {
         goto error_jump;
     }
 #endif
-    // seek to the EOF
-    // off_t total_file_length = 0;
-    // if((total_file_length = lseek(fd, 0, SEEK_END))== -1) {
-    //     perror("lseek error: ");
-    //     // free(store_buffer);
-    //     goto mutex_unlock_error_jump;
-   
-    // }
-    if(write(fd, store_buffer, total_length) == -1) {
-        perror("File writer fail: ");
-        // free(store_buffer);
-        goto mutex_unlock_error_jump;
 
-    }   
+    // check if store buffer received a ioctl handle command 
+    // if received, call ioctl 
+    if(!(strncmp(store_buffer, ioctl_cmd, strlen(ioctl_cmd)))) {
+        //ref: https://www.educative.io/answers/how-to-read-data-using-sscanf-in-c
+        // store values of write cmd and offset
+        sscanf(store_buffer, "AESDCHAR_IOCSEEKTO:%d,%d", &ioctl_cmd_request.write_cmd, &ioctl_cmd_request.write_cmd_offset);
+        if(ioctl(fd, AESDCHAR_IOCSEEKTO, &ioctl_cmd_request)) {
+            perror("ioctl error: ");
+            goto mutex_unlock_error_jump;
+        }
+    } else { 
+    // else write to file
+        if(write(fd, store_buffer, total_length) == -1) {
+            perror("File writer fail: ");
+            // free(store_buffer);
+            goto mutex_unlock_error_jump;
+
+        }  
+    } 
 #ifndef AESD_CHAR_DRIVER 
     if((lseek(fd, 0, SEEK_SET))== -1) {
         perror("lseek error: ");
@@ -309,9 +318,8 @@ void* client_handle(void *client_meta) {
 
     }
 #endif
-    
-    
-    while((bytes_read = read(fd, send_buffer, 1024)) > 0) {
+        
+    while((bytes_read = read(fd, send_buffer, INIT_BUFFER_SIZE)) > 0) {
         if( bytes_read == -1) { 
             perror("Read error: ");
             goto mutex_unlock_error_jump;
@@ -339,6 +347,7 @@ error_jump:
     return NULL;
 
 }
+
 int main(int argc, char * argv[]) {
 
     bool daemon = false; 
