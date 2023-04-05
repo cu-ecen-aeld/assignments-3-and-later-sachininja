@@ -82,8 +82,11 @@ char * aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, const
    // if buffer is full, increment read pointer 
    if(buffer->full) {
     
+    // to free the buffer, return the overwritten buffer ptr
     ret_ptr = (char *)buffer->entry[buffer->out_offs].buffptr;
 
+    // reduce the total size by the size that was lost dur to overwrite
+    buffer->total_size -= buffer->entry[buffer->out_offs].size;
     if((buffer->out_offs + 1) == AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED) {
         buffer->out_offs = 0; // index 0
     } else {
@@ -94,6 +97,8 @@ char * aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, const
     // store values in the current position of write buffer 
     buffer->entry[buffer->in_offs].buffptr =  add_entry->buffptr;
     buffer->entry[buffer->in_offs].size =  add_entry->size;
+    // add to the total size count 
+    buffer->total_size += add_entry->size;
 
     // increment read pointer 
     if((buffer->in_offs + 1) == AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED) {
@@ -106,9 +111,13 @@ char * aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, const
     if(buffer->in_offs == buffer->out_offs) {
         buffer->full = true;
     }
+
     return ret_ptr;
 }
-
+unsigned int update_total_size(struct aesd_circular_buffer *buffer) 
+{
+    return buffer->total_size;
+}
 /**
 * Initializes the circular buffer described by @param buffer to an empty struct
 */
